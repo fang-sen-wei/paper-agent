@@ -1,11 +1,11 @@
 from enum import Enum
 
-
 from sqlalchemy import DateTime, Integer, String, Text, func
 from sqlalchemy import Enum as SqlEnum
-from sqlalchemy.orm import Mapped, foreign, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+
 
 # 文档的状态，枚举类型
 class DocumentStatus(str, Enum):
@@ -17,10 +17,12 @@ class DocumentStatus(str, Enum):
 
 # 文档模型，对应数据库中的documents表
 
+
 class Document(Base):
     """
     文档模型，对应数据库中的documents表
     """
+
     __tablename__ = "documents"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -58,6 +60,7 @@ class DocumentChunk(Base):
     """
     文档块模型，对应数据库中的document_chunks表
     """
+
     __tablename__ = "document_chunks"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

@@ -10,8 +10,14 @@ from app.models.schemas import (
     DocumentDeleteResponse,
     DocumentItem,
     DocumentUploadResponse,
+    DocumentProcessResponse,
+    DocumentChunkItem,
 )
-from app.services.document_service import delete_document_with_chunks
+from app.services.document_service import (
+    delete_document_with_chunks,
+    list_document_chunks,
+    process_document_and_save_chunks,
+)
 from app.services.file_service import save_upload_file, validate_upload_file
 
 
@@ -132,7 +138,45 @@ async def delete_document(
             detail="删除文档失败，请稍后重试。",
         )
 
-            
+
+@router.post("/{document_id}/process", response_model=DocumentProcessResponse)
+async def process_document(
+    document_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> DocumentProcessResponse:
+    """
+    Day4 文档处理接口。
+
+    它会完成：
+    1. 解析文件
+    2. 切块
+    3. 保存 chunks
+    4. 更新文档状态
+    """
+    document, chunk_count = await process_document_and_save_chunks(db, document_id)
+
+    return DocumentProcessResponse(
+        message="文档解析与切块完成。",
+        document=DocumentItem.model_validate(document),
+        chunk_count=chunk_count,
+    )
+
+
+@router.get("/{document_id}/chunks", response_model=list[DocumentChunkItem])
+async def get_document_chunks(
+    document_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> list[DocumentChunkItem]:
+    """
+    获取某个文档的 chunks。
+
+    这个接口是 Day4 非常重要的验证工具：
+    你可以直接看每个 chunk 是怎么切出来的。
+    """
+    chunks = await list_document_chunks(db, document_id)
+    return [DocumentChunkItem.model_validate(chunk) for chunk in chunks]
+
+
 
             
 

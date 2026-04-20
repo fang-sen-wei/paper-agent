@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     MAX_UPLOAD_FILES: int = 3
     MAX_UPLOAD_SIZE_MB: int = 25
 
+    CHUNK_SIZE: int = 500
+    CHUNK_OVERLAP: int = 100
+
     model_config = SettingsConfigDict(
         env_file=BASE_DIR / ".env",
         env_file_encoding="utf-8",

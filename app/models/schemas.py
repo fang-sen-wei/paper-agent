@@ -41,3 +41,25 @@ class DocumentDeleteResponse(BaseModel):
 
     message: str
 
+
+class DocumentChunkItem(BaseModel):
+    """
+    单个 chunk 的返回结构。
+    """
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    document_id: int
+    chunk_index: int
+    page_number: int | None
+    text: str
+    created_at: datetime
+
+
+class DocumentProcessResponse(BaseModel):
+    """
+    文档处理接口的返回结构。
+    """
+    message: str
+    document: DocumentItem
+    chunk_count: int
