@@ -1,6 +1,13 @@
 from fastapi import HTTPException, status
 from qdrant_client import AsyncQdrantClient
-from qdrant_client.http.models import Distance, PointStruct, VectorParams
+from qdrant_client.http.models import (
+    Distance,
+    FieldCondition,
+    Filter,
+    MatchValue,
+    PointStruct,
+    VectorParams,
+)
 
 from app.core.config import settings
 from app.models.document import Document, DocumentChunk
@@ -115,3 +122,40 @@ class VectorService:
             collection_name=settings.QDRANT_COLLECTION_NAME,
             points=points,
         )
+
+    async def query_similar_chunks(
+        self,
+        query_vector: list[float],
+        top_k: int,
+        document_id: int | None = None,
+    ) -> list:
+        """
+        根据问题向量检索最相似的 chunk。
+
+        说明：
+        - 当前 qdrant-client 版本使用 query_points()，不是旧版 search()
+        - document_id 可选，用于限定只搜索某个文档
+        """
+        query_filter = None
+
+        if document_id is not None:
+            query_filter = Filter(
+                must=[
+                    FieldCondition(
+                        key="document_id",
+                        match=MatchValue(value=document_id),
+                    )
+                ]
+            )
+
+        response = await self.client.query_points(
+            collection_name=settings.QDRANT_COLLECTION_NAME,
+            query=query_vector,
+            query_filter=query_filter,
+            limit=top_k,
+            with_payload=True,
+            with_vectors=False,
+            score_threshold=settings.RETRIEVAL_SCORE_THRESHOLD,
+        )
+
+        return response.points
