@@ -63,3 +63,12 @@ class DocumentProcessResponse(BaseModel):
     message: str
     document: DocumentItem
     chunk_count: int
+
+class DocumentIndexResponse(BaseModel):
+    """
+    文档向量化接口的返回结构。
+    """
+    message: str
+    document_id: int
+    chunk_count: int
+    collection_name: str

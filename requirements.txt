@@ -2,6 +2,8 @@
 claude-agent-sdk
 python-dotenv>=1.0.0
 pydantic-settings>=2.3.0
+openai>=1.0.0
+
 
 # API dependencies
 fastapi>=0.104.0

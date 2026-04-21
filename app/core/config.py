@@ -24,6 +24,19 @@ class Settings(BaseSettings):
     CHUNK_SIZE: int = 500
     CHUNK_OVERLAP: int = 100
 
+    # Day5：Embedding model配置
+    EMBEDDING_BASE_URL: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    EMBEDDING_API_KEY: str = ""
+    EMBEDDING_MODEL: str = "text-embedding-v4"
+    EMBEDDING_VECTOR_SIZE: int = 256
+    EMBEDDING_BATCH_SIZE: int = 8
+    EMBEDDING_TIMEOUT_SECONDS: int = 60
+
+    # Day5：Qdrant 配置
+    QDRANT_URL: str = ""
+    QDRANT_API_KEY: str = ""
+    QDRANT_COLLECTION_NAME: str = "paper_agent_chunks"
+
     model_config = SettingsConfigDict(
         env_file=BASE_DIR / ".env",
         env_file_encoding="utf-8",

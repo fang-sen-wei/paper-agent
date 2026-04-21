@@ -12,11 +12,13 @@ from app.models.schemas import (
     DocumentUploadResponse,
     DocumentProcessResponse,
     DocumentChunkItem,
+    DocumentIndexResponse,
 )
 from app.services.document_service import (
     delete_document_with_chunks,
     list_document_chunks,
     process_document_and_save_chunks,
+    index_document_chunks_to_qdrant,
 )
 from app.services.file_service import save_upload_file, validate_upload_file
 
@@ -177,6 +179,28 @@ async def get_document_chunks(
     return [DocumentChunkItem.model_validate(chunk) for chunk in chunks]
 
 
+@router.post("/{document_id}/index", response_model=DocumentIndexResponse)
+async def index_document(
+    document_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> DocumentIndexResponse:
+    """
+    Day5 文档向量化接口。
+
+    它会完成：
+    1. 读取 chunks
+    2. 调 embedding 服务
+    3. 写入 Qdrant
+    4. 回写 qdrant_point_id
+    """
+    chunk_count = await index_document_chunks_to_qdrant(db, document_id)
+
+    return DocumentIndexResponse(
+        message="文档向量化并写入 Qdrant 成功。",
+        document_id=document_id,
+        chunk_count=chunk_count,
+        collection_name=settings.QDRANT_COLLECTION_NAME,
+    )
 
             
 

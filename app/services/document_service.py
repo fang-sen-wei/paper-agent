@@ -5,8 +5,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.models.document import Document, DocumentChunk, DocumentStatus
 from app.services.chunk_service import build_chunks
+from app.services.embedding_service import EmbeddingService
 from app.services.parser_service import parse_document_file
-
+from app.services.vector_service import VectorService
 
 async def get_document_or_404(db: AsyncSession, document_id: int) -> Document:
     """
@@ -136,3 +137,81 @@ async def list_document_chunks(
         .order_by(DocumentChunk.chunk_index.asc())
     )
     return list(result.scalars().all())
+
+
+async def index_document_chunks_to_qdrant(
+    db: AsyncSession,
+    document_id: int,
+) -> int:
+    """
+    Day5 核心函数：
+    1. 从 MySQL 读取 chunks
+    2. 调 embedding 服务生成向量
+    3. 写入 Qdrant
+    4. 回写 qdrant_point_id
+    """
+    document = await get_document_or_404(db, document_id)
+
+    # 这里限制一下流程，防止用户跳过 Day4 直接做 Day5
+    if document.status != DocumentStatus.COMPLETED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="请先完成文档解析与切块，再执行向量化。",
+        )
+    #查询该document-id 的所有的chunks
+    result = await db.execute(
+        select(DocumentChunk)
+        .where(DocumentChunk.document_id == document_id)
+        .order_by(DocumentChunk.chunk_index.asc())
+    )
+
+    chunks = list(result.scalars().all())
+
+    if not chunks:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="当前文档还没有可向量化的 chunks。",
+        )
+
+    embedding_service = EmbeddingService()
+    vector_service = VectorService()
+
+    try:
+        vectors: list[list[float]] = []
+
+        # 分批调用 embedding，避免一次请求过大
+        for start in range(0, len(chunks), settings.EMBEDDING_BATCH_SIZE):
+            batch_chunks = chunks[start : start + settings.EMBEDDING_BATCH_SIZE]
+            batch_texts = [chunk.text for chunk in batch_chunks]
+
+            batch_vectors = await embedding_service.embed_texts(batch_texts)
+            vectors.extend(batch_vectors)
+
+        if len(vectors) != len(chunks):
+            raise ValueError("最终生成的向量数量和 chunk 数量不一致。")
+
+        # 确保 Qdrant collection 存在
+        await vector_service.ensure_collection()
+
+        # 把 points 写入 Qdrant
+        await vector_service.upsert_document_chunks(document, chunks, vectors)
+
+        # 回写 point id，方便后面调试和展示。
+        # 这里存回 MySQL 时保留字符串形式即可，
+        # 但真正发给 Qdrant 的时候必须是整数 chunk.id。
+        for chunk in chunks:
+            chunk.qdrant_point_id = str(chunk.id)
+
+        await db.commit()
+
+        return len(chunks)
+
+    except HTTPException:
+        await db.rollback()
+        raise
+    except Exception as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"文档向量化失败：{exc}",
+        )
