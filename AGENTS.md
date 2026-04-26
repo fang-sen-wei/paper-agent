@@ -1,3 +1,6 @@
+Always write files using UTF-8 without BOM.
+Never use UTF-8 BOM.
+
 # AGENTS.md
 
 Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
@@ -58,6 +61,9 @@ For multi-step tasks, state a brief plan:
 3. [Step] → verify: [check]
 ```
 
+Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
+
+
 ## 5. Readability & Comments
 
 **Code is for humans. Mandatory use of Chinese for key logic descriptions.**
@@ -67,9 +73,6 @@ For multi-step tasks, state a brief plan:
 - **Usage Instructions**: Provide necessary Chinese explanations for key parameters, expected inputs/outputs, and calling examples.
 - **Restraint Principle**: Keep comments concise. Do not comment on obvious, self-explanatory code.
 
-
-
-Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
 
 ---
 

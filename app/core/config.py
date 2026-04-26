@@ -42,6 +42,12 @@ class Settings(BaseSettings):
     RETRIEVAL_SCORE_THRESHOLD: float = 0.3
     CITATION_TEXT_PREVIEW_LENGTH: int = 120
 
+    # Day7：Claude Agent SDK 配置
+    ANTHROPIC_BASE_URL: str = "https://api-inference.modelscope.cn"
+    ANTHROPIC_API_KEY: str = ""  # ModelScope Token
+    AGENT_MODEL: str = "Qwen/Qwen3.5-397B-A17B"
+    AGENT_MAX_TURNS: int = 8
+
     model_config = SettingsConfigDict(
         env_file=BASE_DIR / ".env",
         env_file_encoding="utf-8",

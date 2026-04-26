@@ -3,6 +3,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 from pydantic.config import ConfigDict
 
+from app.models.chat import ChatMessageRole
 from app.models.document import DocumentStatus
 
 
@@ -128,3 +129,87 @@ class SearchResponse(BaseModel):
     top_k: int
     results: list[SearchResultItem]
     citations: list[CitationItem]
+
+
+# ---------------------------
+# Day7/8：聊天相关 schema
+# ---------------------------
+
+
+class ChatSessionCreateRequest(BaseModel):
+    """
+    创建聊天会话的请求体。
+    title 可选，不传就用默认标题。
+    """
+
+    title: str | None = Field(None, max_length=255, description="可选：会话标题")
+
+
+class ChatSessionItem(BaseModel):
+    """
+    单个聊天会话的返回结构。
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    title: str
+    claude_session_id: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ChatSessionDeleteResponse(BaseModel):
+    """
+    删除聊天会话的返回结构。
+    """
+
+    message: str
+
+
+class ChatMessageItem(BaseModel):
+    """
+    单条聊天消息的返回结构。
+    """
+
+    id: int
+    session_id: int
+    role: ChatMessageRole
+    content: str
+    citations: list[CitationItem] | None
+    used_web_search: bool
+    created_at: datetime
+
+
+class ChatSessionDetailResponse(BaseModel):
+    """
+    获取会话详情时返回：会话本身 + 全部消息。
+    """
+
+    session: ChatSessionItem
+    messages: list[ChatMessageItem]
+
+
+class ChatMessageCreateRequest(BaseModel):
+    """
+    某个会话里发送消息的请求体。
+    """
+
+    question: str = Field(..., min_length=1, description="用户问题")
+    top_k: int | None = Field(None, ge=1, le=20, description="检索返回多少条 chunk")
+    document_id: int | None = Field(None, description="可选：只在某个文档内检索")
+    web_search_enabled: bool = Field(False, description="是否允许 Agent 使用 WebSearch")
+
+
+class ChatMessageCreateResponse(BaseModel):
+    """
+    某个会话里发送消息后的返回体。
+    """
+
+    session_id: int
+    claude_session_id: str | None
+    question: str
+    answer: str
+    retrieved_count: int
+    citations: list[CitationItem]
+    used_web_search: bool

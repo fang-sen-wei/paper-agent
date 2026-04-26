@@ -1,6 +1,7 @@
 from enum import Enum
 
-from sqlalchemy import JSON, Boolean, DateTime, Enum as SqlEnum, ForeignKey, Integer, String, Text, func
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Enum as SqlEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -16,6 +17,13 @@ class ChatSession(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False, default="New Chat")
+
+    # Day7/8 新增：
+    # 这里保存 Claude SDK 返回的真实会话 id。
+    # 之后无论服务是否重启，我们都可以用这个 id 做 resume，
+    # 从而把“同一个聊天窗口”恢复到同一个 Claude 会话里。
+    claude_session_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
     created_at: Mapped[object] = mapped_column(
         DateTime,
         server_default=func.now(),
@@ -38,14 +46,23 @@ class ChatMessage(Base):
     __tablename__ = "chat_messages"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    session_id: Mapped[int] = mapped_column(ForeignKey("chat_sessions.id"), nullable=False)
+    session_id: Mapped[int] = mapped_column(
+        ForeignKey("chat_sessions.id"), nullable=False
+    )
     role: Mapped[ChatMessageRole] = mapped_column(
         SqlEnum(ChatMessageRole, native_enum=False),
         nullable=False,
     )
     content: Mapped[str] = mapped_column(Text, nullable=False)
+
+    # 这里继续沿用你之前的设计：
+    # assistant 消息会把 citations 结构化地存下来，
+    # 这样后面前端刷新页面时，仍然能展示引用来源。
     citations_json: Mapped[list[dict] | None] = mapped_column(JSON, nullable=True)
-    used_web_search: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    used_web_search: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False
+    )
     created_at: Mapped[object] = mapped_column(
         DateTime,
         server_default=func.now(),
