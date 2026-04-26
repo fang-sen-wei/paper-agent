@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.chat import ChatMessage, ChatMessageRole, ChatSession
+from app.services.document_service import get_document_or_404
 from app.services.agent_service import AgentService
 from app.services.citation_service import build_citations
 from app.services.retrieval_service import RetrievalService
@@ -12,8 +13,17 @@ from app.services.retrieval_service import RetrievalService
 async def create_chat_session(
     db: AsyncSession,
     title: str | None = None,
+    document_id: int | None = None,
+    web_search_enabled: bool = False,
 ) -> ChatSession:
-    session = ChatSession(title=title or "New Chat")
+    if document_id is not None:
+        await get_document_or_404(db, document_id)
+
+    session = ChatSession(
+        title=(title or "New Chat").strip() or "New Chat",
+        document_id=document_id,
+        web_search_enabled=web_search_enabled,
+    )
     db.add(session)
     await db.commit()
     await db.refresh(session)
@@ -56,20 +66,25 @@ async def send_message_in_session(
     question: str,
     top_k: int | None = None,
     document_id: int | None = None,
-    web_search_enabled: bool = False,
+    web_search_enabled: bool | None = None,
 ) -> dict:
     session = await _get_chat_session(db, session_id)
+    actual_document_id = document_id if document_id is not None else session.document_id
+    actual_web_search_enabled = (
+        web_search_enabled
+        if web_search_enabled is not None
+        else session.web_search_enabled
+    )
 
     retrieval_service = RetrievalService()
     retrieved_chunks = await retrieval_service.retrieve(
         question=question,
         top_k=top_k,
-        document_id=document_id,
+        document_id=actual_document_id,
     )
     citations = build_citations(retrieved_chunks)
-    allow_web_search = web_search_enabled or not retrieved_chunks
-
-    print("-------------已执行到这里，session id表示的是主键id的意思------------")
+    # 中文说明：联网搜索由会话开关显式控制，避免知识库未命中时偷偷联网。
+    allow_web_search = actual_web_search_enabled
 
     agent_result = await AgentService().answer_question(
         question=question,
@@ -119,6 +134,33 @@ async def delete_chat_session(
     session = await _get_chat_session(db, session_id)
     await db.delete(session)
     await db.commit()
+
+
+async def update_chat_session(
+    db: AsyncSession,
+    session_id: int,
+    title: str | None = None,
+    document_id: int | None = None,
+    web_search_enabled: bool | None = None,
+) -> ChatSession:
+    """
+    中文说明：更新会话标题、默认检索文档范围和联网搜索开关。
+    document_id=None 表示恢复为“全部文献”。
+    """
+    session = await _get_chat_session(db, session_id)
+
+    if document_id is not None:
+        await get_document_or_404(db, document_id)
+
+    if title is not None:
+        session.title = title.strip() or "New Chat"
+    session.document_id = document_id
+    if web_search_enabled is not None:
+        session.web_search_enabled = web_search_enabled
+
+    await db.commit()
+    await db.refresh(session)
+    return session
 
 
 async def _get_chat_session(

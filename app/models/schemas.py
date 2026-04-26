@@ -139,10 +139,22 @@ class SearchResponse(BaseModel):
 class ChatSessionCreateRequest(BaseModel):
     """
     创建聊天会话的请求体。
-    title 可选，不传就用默认标题。
+    title 可选，不传就用默认标题；document_id 为空表示检索全部文献。
     """
 
     title: str | None = Field(None, max_length=255, description="可选：会话标题")
+    document_id: int | None = Field(None, description="可选：限定会话只检索某个文档")
+    web_search_enabled: bool = Field(False, description="该会话是否允许联网搜索")
+
+
+class ChatSessionUpdateRequest(BaseModel):
+    """
+    更新聊天会话设置的请求体。
+    """
+
+    title: str | None = Field(None, max_length=255, description="会话标题")
+    document_id: int | None = Field(None, description="可选：限定会话只检索某个文档")
+    web_search_enabled: bool | None = Field(None, description="是否允许联网搜索")
 
 
 class ChatSessionItem(BaseModel):
@@ -155,6 +167,8 @@ class ChatSessionItem(BaseModel):
     id: int
     title: str
     claude_session_id: str | None
+    document_id: int | None
+    web_search_enabled: bool
     created_at: datetime
     updated_at: datetime
 
@@ -198,7 +212,7 @@ class ChatMessageCreateRequest(BaseModel):
     question: str = Field(..., min_length=1, description="用户问题")
     top_k: int | None = Field(None, ge=1, le=20, description="检索返回多少条 chunk")
     document_id: int | None = Field(None, description="可选：只在某个文档内检索")
-    web_search_enabled: bool = Field(False, description="是否允许 Agent 使用 WebSearch")
+    web_search_enabled: bool | None = Field(None, description="是否允许 Agent 使用 WebSearch")
 
 
 class ChatMessageCreateResponse(BaseModel):

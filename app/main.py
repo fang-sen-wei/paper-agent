@@ -6,23 +6,22 @@ from app.api.router import api_router
 from app.core.config import settings
 from app.core.database import init_db
 
-# 🌟 致命关键修复：必须导入模型大厅！
-# 只有加了这行，SQLAlchemy 才能看到你画的表结构图纸
+# 必须导入模型模块，确保 SQLAlchemy 在初始化数据库时已注册所有表结构。
 import app.models 
 
 
-# 🌟 现代化语法：生命周期管理器 (取代 on_event)
+# 使用生命周期管理器集中处理启动和关闭逻辑，替代分散的 on_event。
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # 【项目启动前执行的代码放在这里】
-    print("🚀 正在检查并初始化数据库表...")
+    print("正在检查并初始化数据库表...")
     await init_db()
-    print("✅ 数据库表初始化完成！")
+    print("数据库表初始化完成！")
     
     yield  # 这一步代表服务正在运行中...
     
     # 【项目关闭时执行的代码放在这里】
-    print("🛑 正在关闭后端服务...")
+    print("正在关闭后端服务...")
 
 
 def create_app() -> FastAPI:
@@ -30,7 +29,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title=settings.APP_NAME,
         version=settings.APP_VERSION,
-        lifespan=lifespan,  # 👈 关键点：把它交给 app
+        lifespan=lifespan,
     )
 
     # 添加中间件

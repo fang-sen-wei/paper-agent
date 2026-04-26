@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     APP_ENV: str = "development"
     APP_VERSION: str = "0.1.0"
     API_PREFIX: str = "/api"
-    CORS_ORIGINS: str = "http://localhost:5173"
+    CORS_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173"
 
     DATABASE_URL: str = "mysql+aiomysql://root:123456@127.0.0.1:3306/paper_agent_llm"
     DB_ECHO: bool = False

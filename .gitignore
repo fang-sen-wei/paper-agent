@@ -6,3 +6,6 @@ venv/
 .vscode/
 .venv/
 .data/
+frontend/node_modules/
+frontend/dist/
+frontend/vite-dev*.log

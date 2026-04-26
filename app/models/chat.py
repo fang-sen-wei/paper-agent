@@ -23,6 +23,12 @@ class ChatSession(Base):
     # 之后无论服务是否重启，我们都可以用这个 id 做 resume，
     # 从而把“同一个聊天窗口”恢复到同一个 Claude 会话里。
     claude_session_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # 中文说明：会话级文档范围。None 表示搜索全部已索引文献；有值时只检索指定文档。
+    document_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # 中文说明：会话级联网开关，发送消息时默认沿用它，避免每一轮都重复传参。
+    web_search_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False
+    )
 
     created_at: Mapped[object] = mapped_column(
         DateTime,

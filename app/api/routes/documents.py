@@ -149,18 +149,21 @@ async def process_document(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> DocumentProcessResponse:
     """
-    Day4 文档处理接口。
+    文档处理接口。
 
     它会完成：
     1. 解析文件
     2. 切块
     3. 保存 chunks
-    4. 更新文档状态
+    4. 写入 Qdrant 向量库
+    5. 更新文档状态
     """
     document, chunk_count = await process_document_and_save_chunks(db, document_id)
+    await index_document_chunks_to_qdrant(db, document_id)
+    await db.refresh(document)
 
     return DocumentProcessResponse(
-        message="文档解析与切块完成。",
+        message="文档解析、切块与向量索引完成。",
         document=DocumentItem.model_validate(document),
         chunk_count=chunk_count,
     )

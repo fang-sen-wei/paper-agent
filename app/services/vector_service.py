@@ -7,6 +7,7 @@ from qdrant_client.http.models import (
     Distance,
     FieldCondition,
     Filter,
+    FilterSelector,
     MatchValue,
     PayloadSchemaType,
     PointStruct,
@@ -157,6 +158,8 @@ class VectorService:
         if len(chunks) != len(vectors):
             raise ValueError("chunks 数量和 vectors 数量不一致。")
 
+        await self.delete_document_points(document.id)
+
         points: list[PointStruct] = []
 
         for chunk, vector in zip(chunks, vectors, strict=True):
@@ -183,6 +186,31 @@ class VectorService:
             collection_name=settings.QDRANT_COLLECTION_NAME,
             points=points,
         )
+
+    async def delete_document_points(self, document_id: int) -> None:
+        """
+        中文说明：重建某篇文档索引前先清理旧 points，避免旧 chunk 继续被检索出来。
+        """
+        try:
+            await self.client.delete(
+                collection_name=settings.QDRANT_COLLECTION_NAME,
+                points_selector=FilterSelector(
+                    filter=Filter(
+                        must=[
+                            FieldCondition(
+                                key="document_id",
+                                match=MatchValue(value=document_id),
+                            )
+                        ]
+                    )
+                ),
+                wait=True,
+            )
+        except UnexpectedResponse as exc:
+            response_text = exc.response.text if exc.response is not None else ""
+            if "not found" in response_text.lower():
+                return
+            raise
 
     async def query_similar_chunks(
         self,

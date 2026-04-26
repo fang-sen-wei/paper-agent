@@ -12,6 +12,7 @@ from app.models.schemas import (
     ChatSessionDeleteResponse,
     ChatSessionDetailResponse,
     ChatSessionItem,
+    ChatSessionUpdateRequest,
     CitationItem,
 )
 from app.services.chat_service import (
@@ -20,6 +21,7 @@ from app.services.chat_service import (
     get_chat_session_detail,
     list_chat_sessions,
     send_message_in_session,
+    update_chat_session,
 )
 
 router = APIRouter(prefix="/chat")
@@ -70,6 +72,8 @@ async def create_session(
     session = await create_chat_session(
         db=db,
         title=request.title,
+        document_id=request.document_id,
+        web_search_enabled=request.web_search_enabled,
     )
     return ChatSessionItem.model_validate(session)
 
@@ -83,6 +87,25 @@ async def get_sessions(
     """
     sessions = await list_chat_sessions(db)
     return [ChatSessionItem.model_validate(item) for item in sessions]
+
+
+@router.patch("/sessions/{session_id}", response_model=ChatSessionItem)
+async def update_session(
+    session_id: int,
+    request: ChatSessionUpdateRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> ChatSessionItem:
+    """
+    更新聊天会话的标题、默认文档范围和联网搜索开关。
+    """
+    session = await update_chat_session(
+        db=db,
+        session_id=session_id,
+        title=request.title,
+        document_id=request.document_id,
+        web_search_enabled=request.web_search_enabled,
+    )
+    return ChatSessionItem.model_validate(session)
 
 
 @router.get("/sessions/{session_id}", response_model=ChatSessionDetailResponse)

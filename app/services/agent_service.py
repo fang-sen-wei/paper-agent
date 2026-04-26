@@ -157,7 +157,7 @@ class AgentService:
         used_web_search = allow_web_search
 
         async with ClaudeSDKClient(options=options) as client:
-            print("-----------------===2===---------")
+            print("---------===2===---------")
             await client.query(prompt)
 
             async for message in client.receive_response():
@@ -209,9 +209,9 @@ class AgentService:
 
     def _system_prompt(self) -> str:
         return (
-            "你是一位严谨的文献分析助手。优先依据用户上传到知识库的文档片段回答。"
+            "你是一位严谨的文献分析助手以及通用科研助手。优先依据用户上传到知识库的文档片段回答。"
             "回答必须使用中文。引用知识库内容时，在相关句子后标注 [1]、[2] 这样的编号。"
-            "如果知识库片段不足以回答，并且本轮允许联网搜索，可以使用 WebSearch 补充，"
+            "如果知识库片段不足以回答，以及模型本身的知识无法确定回答该问题，并且本轮允许联网搜索，可以使用 WebSearch 补充，"
             "但必须明确区分知识库内容和联网结果。不要编造引用编号。"
         )
 
@@ -233,11 +233,6 @@ class AgentService:
             f"用户问题：\n{question}\n\n"
             f"知识库检索结果：\n{context_text}\n\n"
             f"联网策略：{web_search_instruction}\n\n"
-            "回答要求：\n"
-            "1. 先基于知识库检索结果回答。\n"
-            "2. 使用知识库内容时必须在句尾标注对应编号，例如 [1]。\n"
-            "3. 不要引用没有出现在检索结果里的编号。\n"
-            "4. 如果使用了联网结果，请单独写出“联网补充：”。\n"
         )
 
     def _format_retrieved_context(

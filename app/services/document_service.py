@@ -153,7 +153,7 @@ async def index_document_chunks_to_qdrant(
     document = await get_document_or_404(db, document_id)
 
     # 这里限制一下流程，防止用户跳过 Day4 直接做 Day5
-    if document.status != DocumentStatus.COMPLETED:
+    if document.status not in {DocumentStatus.COMPLETED, DocumentStatus.INDEXED}:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="请先完成文档解析与切块，再执行向量化。",
@@ -201,6 +201,9 @@ async def index_document_chunks_to_qdrant(
         # 但真正发给 Qdrant 的时候必须是整数 chunk.id。
         for chunk in chunks:
             chunk.qdrant_point_id = str(chunk.id)
+
+        document.status = DocumentStatus.INDEXED
+        document.error_message = None
 
         await db.commit()
 
