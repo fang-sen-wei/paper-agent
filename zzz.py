@@ -10,6 +10,11 @@ from claude_agent_sdk import (
 from dotenv import load_dotenv
 
 from app.core.config import settings
+from app.services.agent_tool_registry import (
+    WEB_SEARCH_SERVER_NAME,
+    WEB_SEARCH_TOOL_ID,
+    web_search_server,
+)
 
 load_dotenv()
 
@@ -18,16 +23,21 @@ Qwen_model = settings.AGENT_MODEL
 
 
 async def main():
-
     options = ClaudeAgentOptions(
         model=Qwen_model,
-        allowed_tools=["Read", "Edit", "Glob", "WebSearch"],  # Tools Claude can use
+        tools=["Glob"],
+        disallowed_tools=["Bash", "Edit"],
+        allowed_tools=[
+            "Glob",
+            WEB_SEARCH_TOOL_ID,
+        ],  # Tools Claude can use
+        mcp_servers={WEB_SEARCH_SERVER_NAME: web_search_server},
         system_prompt="you are a good helper",
         setting_sources=["project"],
     )
 
     async with ClaudeSDKClient(options=options) as client:
-        await client.query("who are you?")
+        await client.query("deepseekv4pro哪天发布的?")
         async for message in client.receive_response():
             print_response(message)
 

@@ -212,7 +212,7 @@ class ChatMessageCreateRequest(BaseModel):
     question: str = Field(..., min_length=1, description="用户问题")
     top_k: int | None = Field(None, ge=1, le=20, description="检索返回多少条 chunk")
     document_id: int | None = Field(None, description="可选：只在某个文档内检索")
-    web_search_enabled: bool | None = Field(None, description="是否允许 Agent 使用 WebSearch")
+    web_search_enabled: bool | None = Field(None, description="是否允许 Agent 使用网页搜索")
 
 
 class ChatMessageCreateResponse(BaseModel):

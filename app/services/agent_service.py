@@ -14,6 +14,12 @@ from dotenv import load_dotenv
 from fastapi import HTTPException, status
 
 from app.core.config import settings
+from app.services.agent_tool_registry import (
+    WEB_SEARCH_SERVER_NAME,
+    WEB_SEARCH_TOOL_ID,
+    is_web_search_tool,
+    web_search_server,
+)
 from app.services.retrieval_service import RetrievedChunk
 
 load_dotenv()
@@ -56,7 +62,7 @@ class AgentService:
             allow_web_search=allow_web_search,
         )
 
-        print("-----------------===1===---------")
+        print("------------等待模型回答-----------")
         try:
             answer_parts, next_session_id, used_web_search = await self._run_client(
                 prompt=prompt,
@@ -154,10 +160,9 @@ class AgentService:
         """执行一次完整的 Agent 请求，并提取回答、会话 ID 与联网使用状态。"""
         answer_parts: list[str] = []
         next_session_id = claude_session_id
-        used_web_search = allow_web_search
+        used_web_search = False
 
         async with ClaudeSDKClient(options=options) as client:
-            print("---------===2===---------")
             await client.query(prompt)
 
             async for message in client.receive_response():
@@ -170,7 +175,8 @@ class AgentService:
                             answer_parts.append(block.text)
                         elif (
                             isinstance(block, ToolUseBlock)
-                            and block.name == "WebSearch"
+                            and allow_web_search
+                            and is_web_search_tool(block.name)
                         ):
                             used_web_search = True
 
@@ -190,7 +196,15 @@ class AgentService:
         claude_session_id: str | None,
         allow_web_search: bool,
     ) -> ClaudeAgentOptions:
-        tools = ["Glob", "WebSearch", "WebFetch"] if allow_web_search else ["Glob"]
+        tools = ["Glob"]
+        allowed_tools = ["Glob"]
+        disallowed_tools = ["Bash", "Edit"]
+        mcp_servers = {}
+        if allow_web_search:
+            # 这里按需启用已注册的 MCP server，server 名要和 tool id 中间段一致。
+            allowed_tools.append(WEB_SEARCH_TOOL_ID)
+            mcp_servers[WEB_SEARCH_SERVER_NAME] = web_search_server
+
         env = {
             "ANTHROPIC_BASE_URL": settings.ANTHROPIC_BASE_URL,
             "ANTHROPIC_API_KEY": settings.ANTHROPIC_API_KEY,
@@ -198,7 +212,10 @@ class AgentService:
 
         return ClaudeAgentOptions(
             model=self.model,
-            allowed_tools=tools,
+            tools=tools,
+            allowed_tools=allowed_tools,
+            disallowed_tools=disallowed_tools,
+            mcp_servers=mcp_servers,
             system_prompt=self._system_prompt(),
             max_turns=self.max_turns,
             resume=claude_session_id,
@@ -209,10 +226,15 @@ class AgentService:
 
     def _system_prompt(self) -> str:
         return (
-            "你是一位严谨的文献分析助手以及通用科研助手。优先依据用户上传到知识库的文档片段回答。"
-            "回答必须使用中文。引用知识库内容时，在相关句子后标注 [1]、[2] 这样的编号。"
-            "如果知识库片段不足以回答，以及模型本身的知识无法确定回答该问题，并且本轮允许联网搜索，可以使用 WebSearch 补充，"
-            "但必须明确区分知识库内容和联网结果。不要编造引用编号。"
+            "你是一位严谨的文献分析助手和通用科研问答助手，始终使用中文回答。"
+            "请优先依据用户上传文件的知识库检索结果回答；当文件信息不足时，"
+            "可以结合你确定的通用科研知识进行补充，但必须明确哪些内容不是来自上传文件。"
+            "只有在本轮明确允许联网，并且知识库与通用知识仍不足以可靠回答、或问题需要最新信息时，"
+            "才使用 Tavily 网页搜索工具补充。使用知识库内容时，必须在相关句子后标注 [1]、[2] 这样的引用编号；"
+            "不要给未出现在知识库检索结果中的内容编造引用编号。"
+            "联网结果必须和知识库依据分开说明，不能混用知识库引用编号。"
+            "如果证据不足、来源冲突或只能给出推断，请直接说明不确定性，并给出可验证的下一步。"
+            "回答应先给出核心结论，再给出必要依据，避免堆砌无关背景。"
         )
 
     def _build_prompt(
@@ -224,9 +246,11 @@ class AgentService:
     ) -> str:
         context_text = self._format_retrieved_context(retrieved_chunks, citations)
         web_search_instruction = (
-            "本轮允许使用 WebSearch；只有当知识库内容不足时才联网补充。"
+            "本轮允许使用 Tavily 网页搜索工具；请先判断知识库检索结果和通用科研知识是否足够。"
+            "只有仍无法可靠回答，或问题需要最新外部信息时，才联网补充，并明确标注联网结果。"
             if allow_web_search
-            else "本轮不允许联网搜索；如果知识库内容不足，请直接说明无法从已上传文件中确认。"
+            else "本轮不允许联网搜索；如果知识库内容不足，可以结合确定的通用科研知识回答，"
+            "但必须明确哪些结论无法从已上传文件中确认。若问题依赖最新或外部事实且无法确认，请说明限制。"
         )
 
         return (

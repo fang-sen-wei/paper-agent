@@ -37,6 +37,8 @@ class Settings(BaseSettings):
     QDRANT_API_KEY: str = ""
     QDRANT_COLLECTION_NAME: str = "paper_agent_chunks"
 
+    TAVILY_API: str = ""
+
     # Day6：检索配置
     RETRIEVAL_TOP_K: int = 5
     RETRIEVAL_SCORE_THRESHOLD: float = 0.3

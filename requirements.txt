@@ -3,6 +3,7 @@ claude-agent-sdk
 python-dotenv>=1.0.0
 pydantic-settings>=2.3.0
 openai>=1.0.0
+tavily-python>=0.7.23
 
 
 # API dependencies
@@ -20,4 +21,3 @@ qdrant-client>=1.9.0
 
 # Parsing
 pypdf>=5.1.0
-
