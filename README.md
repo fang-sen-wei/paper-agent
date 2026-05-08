@@ -291,14 +291,3 @@ python test.py
 ### 联网搜索不可用
 
 请确认 `.env` 中已配置 `TAVILY_API`，并且聊天会话中开启了“联网搜索”。
-
-## 发布到 GitHub 前建议
-
-- 不要提交 `.env`、`.data/`、`.venv/`、`frontend/node_modules/`、`frontend/dist/`。
-- 检查 README 中的示例地址、模型名称和环境变量是否符合你的实际部署环境。
-- 如果项目要对外开源，建议补充 `LICENSE` 文件。
-- 如果要给他人演示，可以准备一份不含密钥的 `.env.example`。
-
-## 许可证
-
-当前项目尚未指定许可证。发布到 GitHub 前，请根据你的开源计划补充对应的 `LICENSE` 文件。
