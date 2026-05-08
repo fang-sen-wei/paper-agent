@@ -1,3 +1,5 @@
+from collections.abc import AsyncIterator
+
 from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -124,6 +126,109 @@ async def send_message_in_session(
         "retrieved_count": len(retrieved_chunks),
         "citations": citations,
         "used_web_search": agent_result.used_web_search,
+    }
+
+
+async def stream_message_in_session(
+    db: AsyncSession,
+    session_id: int,
+    question: str,
+    top_k: int | None = None,
+    document_id: int | None = None,
+    web_search_enabled: bool | None = None,
+) -> AsyncIterator[dict]:
+    """
+    中文说明：以事件流方式完成一次聊天问答。
+
+    事件顺序：
+    1. citations：先把本轮检索引用返回给前端，方便界面提前展示来源
+    2. delta/tool：Agent 输出文本或调用联网工具时即时推送
+    3. done：模型完成后落库，并返回最终完整消息
+    """
+    session = await _get_chat_session(db, session_id)
+    actual_document_id = document_id if document_id is not None else session.document_id
+    actual_web_search_enabled = (
+        web_search_enabled
+        if web_search_enabled is not None
+        else session.web_search_enabled
+    )
+
+    retrieval_service = RetrievalService()
+    retrieved_chunks = await retrieval_service.retrieve(
+        question=question,
+        top_k=top_k,
+        document_id=actual_document_id,
+    )
+    citations = build_citations(retrieved_chunks)
+    yield {
+        "event": "citations",
+        "data": {
+            "retrieved_count": len(retrieved_chunks),
+            "citations": citations,
+        },
+    }
+
+    answer_parts: list[str] = []
+    next_claude_session_id = session.claude_session_id
+    used_web_search = False
+
+    async for agent_event in AgentService().stream_answer_question(
+        question=question,
+        retrieved_chunks=retrieved_chunks,
+        citations=citations,
+        claude_session_id=session.claude_session_id,
+        allow_web_search=actual_web_search_enabled,
+    ):
+        if agent_event.session_id:
+            next_claude_session_id = agent_event.session_id
+        used_web_search = used_web_search or agent_event.used_web_search
+
+        if agent_event.event == "delta":
+            answer_parts.append(agent_event.text)
+            yield {
+                "event": "delta",
+                "data": {"text": agent_event.text},
+            }
+        elif agent_event.event == "tool":
+            yield {
+                "event": "tool",
+                "data": {"used_web_search": True},
+            }
+
+    answer = "".join(answer_parts).strip() or "抱歉，我没有生成有效回答。"
+    session.claude_session_id = next_claude_session_id
+
+    user_message = ChatMessage(
+        session_id=session.id,
+        role=ChatMessageRole.USER,
+        content=question,
+        citations_json=None,
+        used_web_search=False,
+    )
+    assistant_message = ChatMessage(
+        session_id=session.id,
+        role=ChatMessageRole.ASSISTANT,
+        content=answer,
+        citations_json=citations,
+        used_web_search=used_web_search,
+    )
+
+    db.add(user_message)
+    db.add(assistant_message)
+    await db.commit()
+    await db.refresh(session)
+
+    yield {
+        "event": "done",
+        "data": {
+            "session_id": session.id,
+            "claude_session_id": session.claude_session_id,
+            "question": question,
+            "answer": answer,
+            "retrieved_count": len(retrieved_chunks),
+            "citations": citations,
+            "used_web_search": used_web_search,
+        },
     }
 
 

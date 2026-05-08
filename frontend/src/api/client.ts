@@ -123,6 +123,13 @@ export interface ChatMessageCreateResponse {
   used_web_search: boolean;
 }
 
+export interface ChatMessageStreamHandlers {
+  onCitations?: (citations: CitationItem[]) => void;
+  onDelta?: (text: string) => void;
+  onTool?: () => void;
+  onDone?: (result: ChatMessageCreateResponse) => void;
+}
+
 // Health
 export const getHealth = () => fetchJson<{ status: string; version: string; name: string; env: string }>('/health');
 
@@ -175,3 +182,63 @@ export const sendChatMessage = (sessionId: number, question: string, top_k?: num
     method: 'POST',
     body: JSON.stringify({ question, top_k, document_id, web_search_enabled }),
   });
+
+export async function sendChatMessageStream(
+  sessionId: number,
+  question: string,
+  handlers: ChatMessageStreamHandlers,
+  top_k?: number,
+  document_id?: number,
+  web_search_enabled?: boolean,
+) {
+  const res = await fetch(`${API_BASE}/chat/sessions/${sessionId}/messages/stream`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ question, top_k, document_id, web_search_enabled }),
+  });
+
+  if (!res.ok || !res.body) {
+    const err = await res.json().catch(() => ({ detail: '流式请求失败' }));
+    throw new Error(err.detail || `HTTP ${res.status}`);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  const handleBlock = (block: string) => {
+    const eventLine = block.split('\n').find((line) => line.startsWith('event: '));
+    const dataLine = block.split('\n').find((line) => line.startsWith('data: '));
+    if (!eventLine || !dataLine) return;
+
+    const event = eventLine.slice('event: '.length);
+    const data = JSON.parse(dataLine.slice('data: '.length));
+
+    if (event === 'citations') {
+      handlers.onCitations?.(data.citations || []);
+    } else if (event === 'delta') {
+      handlers.onDelta?.(data.text || '');
+    } else if (event === 'tool') {
+      handlers.onTool?.();
+    } else if (event === 'done') {
+      handlers.onDone?.(data);
+    } else if (event === 'error') {
+      throw new Error(data.detail || '流式聊天失败');
+    }
+  };
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+
+    // SSE 按空行分隔事件；这里保留半包，避免中文或 JSON 被网络分片截断。
+    buffer += decoder.decode(value, { stream: true });
+    const blocks = buffer.split('\n\n');
+    buffer = blocks.pop() || '';
+    blocks.forEach(handleBlock);
+  }
+
+  if (buffer.trim()) {
+    handleBlock(buffer);
+  }
+}

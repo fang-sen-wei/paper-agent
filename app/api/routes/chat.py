@@ -1,6 +1,8 @@
+import json
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -21,10 +23,19 @@ from app.services.chat_service import (
     get_chat_session_detail,
     list_chat_sessions,
     send_message_in_session,
+    stream_message_in_session,
     update_chat_session,
 )
 
 router = APIRouter(prefix="/chat")
+
+
+def _format_sse(event: str, data: dict) -> str:
+    """
+    中文说明：把后端事件转换成标准 SSE 文本格式。
+    ensure_ascii=False 保证中文回答直接按 UTF-8 输出，不被转义成一串 Unicode 编码。
+    """
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
 def _build_chat_message_item(message) -> ChatMessageItem:
@@ -172,6 +183,48 @@ async def create_message(
             for item in result["citations"]
         ],
         used_web_search=result["used_web_search"],
+    )
+
+
+@router.post("/sessions/{session_id}/messages/stream")
+async def create_message_stream(
+    session_id: int,
+    request: ChatMessageCreateRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> StreamingResponse:
+    """
+    SSE 流式聊天接口。
+
+    前端通过 fetch 读取 text/event-stream：
+    - citations：本轮引用来源
+    - delta：Agent 文本增量
+    - tool：Agent 使用了联网搜索
+    - done：最终完整回答与落库结果
+    """
+
+    async def event_generator():
+        try:
+            async for item in stream_message_in_session(
+                db=db,
+                session_id=session_id,
+                question=request.question,
+                top_k=request.top_k,
+                document_id=request.document_id,
+                web_search_enabled=request.web_search_enabled,
+            ):
+                yield _format_sse(item["event"], item["data"])
+        except HTTPException as exc:
+            yield _format_sse("error", {"detail": exc.detail})
+        except Exception:
+            yield _format_sse("error", {"detail": "流式聊天失败，请稍后重试。"})
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 

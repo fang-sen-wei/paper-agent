@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     API_PREFIX: str = "/api"
     CORS_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173"
 
-    DATABASE_URL: str = "mysql+aiomysql://root:123456@127.0.0.1:3306/paper_agent_llm"
+    DATABASE_URL: str = ""
     DB_ECHO: bool = False
     BASE_DIR: Path = Global_BASE_DIR
 
@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     # Day6：检索配置
     RETRIEVAL_TOP_K: int = 5
     RETRIEVAL_SCORE_THRESHOLD: float = 0.3
+    RETRIEVAL_CANDIDATE_TOP_K: int = 12
+    RETRIEVAL_QUERY_EXPANSION_LIMIT: int = 2
+    RERANK_KEYWORD_WEIGHT: float = 0.15
     CITATION_TEXT_PREVIEW_LENGTH: int = 120
 
     # Day7：Claude Agent SDK 配置

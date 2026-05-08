@@ -1,5 +1,8 @@
 import asyncio
 import platform
+import queue
+import threading
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
 from claude_agent_sdk import (
@@ -30,6 +33,21 @@ class AgentAnswer:
     answer: str
     claude_session_id: str | None
     used_web_search: bool
+
+
+@dataclass
+class AgentStreamEvent:
+    """
+    中文说明：Agent 流式事件。
+
+    event 用于区分事件类型，text/session_id/used_web_search 是 SSE 层需要透传给前端
+    和最终落库的信息。
+    """
+
+    event: str
+    text: str = ""
+    session_id: str | None = None
+    used_web_search: bool = False
 
 
 class AgentService:
@@ -89,6 +107,53 @@ class AgentService:
             used_web_search=used_web_search,
         )
 
+    async def stream_answer_question(
+        self,
+        question: str,
+        retrieved_chunks: list[RetrievedChunk],
+        citations: list[dict],
+        claude_session_id: str | None = None,
+        allow_web_search: bool = False,
+    ) -> AsyncIterator[AgentStreamEvent]:
+        """
+        中文说明：以流式事件返回 Agent 回答。
+
+        调用方可以边收到 delta 边推给 SSE；等 done 事件到达后，再用累计文本、session_id
+        和 used_web_search 写入数据库，保证流式展示和持久化结果一致。
+        """
+        if not self.model:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="AGENT_MODEL 未配置，请先在 .env 中设置模型名称。",
+            )
+
+        prompt = self._build_prompt(
+            question=question,
+            retrieved_chunks=retrieved_chunks,
+            citations=citations,
+            allow_web_search=allow_web_search,
+        )
+        options = self._build_options(
+            claude_session_id=claude_session_id,
+            allow_web_search=allow_web_search,
+        )
+
+        try:
+            async for event in self._stream_client(
+                prompt=prompt,
+                options=options,
+                claude_session_id=claude_session_id,
+                allow_web_search=allow_web_search,
+            ):
+                yield event
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Agent 调用失败：{exc}",
+            ) from exc
+
     async def _run_client(
         self,
         prompt: str,
@@ -120,6 +185,37 @@ class AgentService:
             allow_web_search=allow_web_search,
         )
 
+    async def _stream_client(
+        self,
+        prompt: str,
+        options: ClaudeAgentOptions,
+        claude_session_id: str | None,
+        allow_web_search: bool,
+    ) -> AsyncIterator[AgentStreamEvent]:
+        """
+        中文说明：在兼容事件循环中流式运行 Claude SDK。
+
+        Windows SelectorEventLoop 不支持 SDK 子进程时，使用线程 + 队列把 ProactorEventLoop
+        中产生的文本事件转回当前 FastAPI 请求，避免为了兼容 Windows 牺牲 SSE。
+        """
+        if self._needs_windows_proactor_loop():
+            async for event in self._stream_client_in_proactor_thread(
+                prompt=prompt,
+                options=options,
+                claude_session_id=claude_session_id,
+                allow_web_search=allow_web_search,
+            ):
+                yield event
+            return
+
+        async for event in self._stream_client_in_current_loop(
+            prompt=prompt,
+            options=options,
+            claude_session_id=claude_session_id,
+            allow_web_search=allow_web_search,
+        ):
+            yield event
+
     def _needs_windows_proactor_loop(self) -> bool:
         """判断当前 Windows 事件循环是否缺少异步子进程能力。"""
         if platform.system() != "Windows":
@@ -149,6 +245,64 @@ class AgentService:
         finally:
             asyncio.set_event_loop(None)
             loop.close()
+
+    async def _stream_client_in_proactor_thread(
+        self,
+        prompt: str,
+        options: ClaudeAgentOptions,
+        claude_session_id: str | None,
+        allow_web_search: bool,
+    ) -> AsyncIterator[AgentStreamEvent]:
+        """
+        中文说明：把线程内 ProactorEventLoop 产生的流式事件桥接回当前 async generator。
+        """
+        event_queue: queue.Queue[AgentStreamEvent | Exception | None] = queue.Queue()
+        worker = threading.Thread(
+            target=self._produce_stream_events_in_proactor_thread,
+            args=(event_queue, prompt, options, claude_session_id, allow_web_search),
+            daemon=True,
+        )
+        worker.start()
+
+        while True:
+            item = await asyncio.to_thread(event_queue.get)
+            if item is None:
+                break
+            if isinstance(item, Exception):
+                raise item
+            yield item
+
+        await asyncio.to_thread(worker.join)
+
+    def _produce_stream_events_in_proactor_thread(
+        self,
+        event_queue: queue.Queue[AgentStreamEvent | Exception | None],
+        prompt: str,
+        options: ClaudeAgentOptions,
+        claude_session_id: str | None,
+        allow_web_search: bool,
+    ) -> None:
+        """中文说明：在线程内收集 SDK 流式事件，并通过队列发送给 FastAPI SSE。"""
+        loop = asyncio.ProactorEventLoop()
+
+        async def runner() -> None:
+            async for event in self._stream_client_in_current_loop(
+                prompt=prompt,
+                options=options,
+                claude_session_id=claude_session_id,
+                allow_web_search=allow_web_search,
+            ):
+                event_queue.put(event)
+
+        try:
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(runner())
+        except Exception as exc:
+            event_queue.put(exc)
+        finally:
+            asyncio.set_event_loop(None)
+            loop.close()
+            event_queue.put(None)
 
     async def _run_client_in_current_loop(
         self,
@@ -190,6 +344,60 @@ class AgentService:
                         )
 
         return answer_parts, next_session_id, used_web_search
+
+    async def _stream_client_in_current_loop(
+        self,
+        prompt: str,
+        options: ClaudeAgentOptions,
+        claude_session_id: str | None,
+        allow_web_search: bool,
+    ) -> AsyncIterator[AgentStreamEvent]:
+        """中文说明：执行 Agent 请求，并把文本块即时转换成 delta 事件。"""
+        next_session_id = claude_session_id
+        used_web_search = False
+
+        async with ClaudeSDKClient(options=options) as client:
+            await client.query(prompt)
+
+            async for message in client.receive_response():
+                if isinstance(message, AssistantMessage):
+                    if message.session_id:
+                        next_session_id = message.session_id
+
+                    for block in message.content:
+                        if isinstance(block, TextBlock):
+                            yield AgentStreamEvent(
+                                event="delta",
+                                text=block.text,
+                                session_id=next_session_id,
+                                used_web_search=used_web_search,
+                            )
+                        elif (
+                            isinstance(block, ToolUseBlock)
+                            and allow_web_search
+                            and is_web_search_tool(block.name)
+                        ):
+                            used_web_search = True
+                            yield AgentStreamEvent(
+                                event="tool",
+                                session_id=next_session_id,
+                                used_web_search=True,
+                            )
+
+                elif isinstance(message, ResultMessage):
+                    if message.session_id:
+                        next_session_id = message.session_id
+                    if message.is_error:
+                        raise HTTPException(
+                            status_code=status.HTTP_502_BAD_GATEWAY,
+                            detail="Agent 调用失败，请检查模型配置或 Claude Agent SDK 输出。",
+                        )
+
+        yield AgentStreamEvent(
+            event="done",
+            session_id=next_session_id,
+            used_web_search=used_web_search,
+        )
 
     def _build_options(
         self,

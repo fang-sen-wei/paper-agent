@@ -18,7 +18,7 @@ import {
   updateChatSession,
   deleteChatSession,
   getChatSessionDetail,
-  sendChatMessage,
+  sendChatMessageStream,
   getErrorMessage,
 } from '../api/client';
 import type { ChatSessionItem, ChatMessageItem, DocumentItem } from '../api/client';
@@ -168,7 +168,7 @@ export default function ChatPage() {
     setSending(true);
     setError('');
 
-    // Optimistically add user message
+    const assistantMessageId = Date.now() + 1;
     const tempUserMsg: ChatMessageItem = {
       id: Date.now(),
       session_id: activeSessionId,
@@ -178,21 +178,55 @@ export default function ChatPage() {
       used_web_search: false,
       created_at: new Date().toISOString(),
     };
-    setMessages((prev) => [...prev, tempUserMsg]);
+    const tempAssistantMsg: ChatMessageItem = {
+      id: assistantMessageId,
+      session_id: activeSessionId,
+      role: 'assistant',
+      content: '',
+      citations: [],
+      used_web_search: false,
+      created_at: new Date().toISOString(),
+    };
+    setMessages((prev) => [...prev, tempUserMsg, tempAssistantMsg]);
 
     try {
-      const res = await sendChatMessage(activeSessionId, question);
-      const assistantMsg: ChatMessageItem = {
-        id: Date.now() + 1,
-        session_id: activeSessionId,
-        role: 'assistant',
-        content: res.answer,
-        citations: res.citations,
-        used_web_search: res.used_web_search,
-        created_at: new Date().toISOString(),
-      };
-      setMessages((prev) => [...prev, assistantMsg]);
-      // Refresh sessions to update timestamp
+      await sendChatMessageStream(activeSessionId, question, {
+        onCitations: (citations) => {
+          setMessages((prev) =>
+            prev.map((msg) => (msg.id === assistantMessageId ? { ...msg, citations } : msg)),
+          );
+        },
+        onDelta: (text) => {
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === assistantMessageId
+                ? { ...msg, content: `${msg.content}${text}` }
+                : msg,
+            ),
+          );
+        },
+        onTool: () => {
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === assistantMessageId ? { ...msg, used_web_search: true } : msg,
+            ),
+          );
+        },
+        onDone: (res) => {
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === assistantMessageId
+                ? {
+                    ...msg,
+                    content: res.answer,
+                    citations: res.citations,
+                    used_web_search: res.used_web_search,
+                  }
+                : msg,
+            ),
+          );
+        },
+      });
       await fetchSessions();
     } catch (err: unknown) {
       setError(getErrorMessage(err, '发送消息失败'));
@@ -441,9 +475,16 @@ export default function ChatPage() {
                           : 'border border-primary/10 bg-white/80 text-secondary'
                       }`}
                     >
-                      <p className="text-sm leading-relaxed whitespace-pre-wrap">
-                        {msg.content}
-                      </p>
+                      {msg.role === 'assistant' && !msg.content && sending ? (
+                        <div className="flex items-center gap-2 text-sm text-muted">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          <span>生成中...</span>
+                        </div>
+                      ) : (
+                        <p className="text-sm leading-relaxed whitespace-pre-wrap">
+                          {msg.content}
+                        </p>
+                      )}
                       {msg.role === 'assistant' && msg.citations && msg.citations.length > 0 && (
                         <div className="mt-3 border-t border-primary/10 pt-3">
                           <div className="flex items-center gap-1.5 mb-2">
@@ -486,16 +527,6 @@ export default function ChatPage() {
                     </div>
                   </div>
                 ))
-              )}
-              {sending && (
-                <div className="flex gap-3">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary">
-                    <Bot className="h-4 w-4 text-white" />
-                  </div>
-                  <div className="rounded-2xl border border-primary/10 bg-white/80 px-4 py-3">
-                    <Loader2 className="h-4 w-4 animate-spin text-muted" />
-                  </div>
-                </div>
               )}
               <div ref={messagesEndRef} />
             </div>
